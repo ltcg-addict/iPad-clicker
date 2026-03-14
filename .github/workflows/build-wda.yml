@@ -22,9 +22,19 @@ jobs:
         run: brew install carthage
 
       - name: Install WDA dependencies
-        run: |
-          cd WebDriverAgent
-          ./Scripts/bootstrap.sh
+              run: |
+                cd WebDriverAgent
+                ls Scripts/ || echo "No Scripts dir"
+                ls *.sh 2>/dev/null || echo "No .sh in root"
+                find . -name "bootstrap.sh" | head -5
+                if [ -f "Scripts/bootstrap.sh" ]; then
+                  ./Scripts/bootstrap.sh
+                elif [ -f "bootstrap.sh" ]; then
+                  ./bootstrap.sh
+                else
+                  echo "No bootstrap.sh found, trying carthage directly"
+                  carthage bootstrap --platform iOS --use-xcframeworks
+                fi
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
