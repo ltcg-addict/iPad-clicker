@@ -1,0 +1,95 @@
+name: Build WebDriverAgent
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-wda:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Clone WebDriverAgent
+        run: |
+          git clone --depth 1 https://github.com/appium/WebDriverAgent.git
+          cd WebDriverAgent
+          echo "Cloned WDA at $(git rev-parse --short HEAD)"
+
+      - name: Install Carthage
+        run: brew install carthage
+
+      - name: Install WDA dependencies
+        run: |
+          cd WebDriverAgent
+          ./Scripts/bootstrap.sh
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Create temporary keychain
+        run: |
+          security create-keychain -p "ci-temp" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "ci-temp" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+
+      - name: Authenticate Apple ID with Xcode
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+        run: |
+          xcrun altool --list-apps \
+            -u "$APPLE_ID" \
+            -p "$APPLE_ID_PASSWORD" || true
+
+      - name: Build WDA
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+        run: |
+          cd WebDriverAgent
+          xcodebuild build-for-testing \
+            -project WebDriverAgent.xcodeproj \
+            -scheme WebDriverAgentRunner \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$HOME/DerivedData" \
+            CODE_SIGN_STYLE=Automatic \
+            -allowProvisioningUpdates \
+            -allowProvisioningDeviceRegistration \
+            2>&1 | tee build.log
+          echo "Exit code: $?"
+
+      - name: Find built .app
+        run: |
+          find $HOME/DerivedData -name "*.app" | head -20
+
+      - name: Package into .ipa
+        run: |
+          APP_PATH=$(find $HOME/DerivedData -name "WebDriverAgentRunner-Runner.app" | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: .app not found. Check build log."
+            exit 1
+          fi
+          echo "Found app at: $APP_PATH"
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+          zip -r WebDriverAgentRunner.ipa Payload/
+          echo "IPA size: $(du -sh WebDriverAgentRunner.ipa)"
+
+      - name: Upload .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: WebDriverAgentRunner-ipa
+          path: WebDriverAgentRunner.ipa
+          retention-days: 7
+
+      - name: Upload build log (always, for debugging)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: WebDriverAgent/build.log
+          retention-days: 3
