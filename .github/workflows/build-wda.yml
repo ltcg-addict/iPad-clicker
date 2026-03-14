@@ -17,27 +17,21 @@ jobs:
           git clone --depth 1 https://github.com/appium/WebDriverAgent.git
           cd WebDriverAgent
           echo "Cloned WDA at $(git rev-parse --short HEAD)"
-
-      - name: Install Carthage
-        run: brew install carthage
-
-      - name: Install WDA dependencies
-        run: |
-          cd WebDriverAgent
-          ls Scripts/ || echo "No Scripts dir"
-          ls *.sh 2>/dev/null || echo "No .sh in root"
-          find . -name "bootstrap.sh" | head -5
-          if [ -f "Scripts/bootstrap.sh" ]; then
-            ./Scripts/bootstrap.sh
-          elif [ -f "bootstrap.sh" ]; then
-            ./bootstrap.sh
-          else
-            echo "No bootstrap.sh found, trying carthage directly"
-            carthage bootstrap --platform iOS --use-xcframeworks
-          fi
+          echo "Root contents:"
+          ls -la
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install WDA Node dependencies
+        run: |
+          cd WebDriverAgent
+          npm install
 
       - name: Create temporary keychain
         run: |
@@ -45,15 +39,6 @@ jobs:
           security default-keychain -s build.keychain
           security unlock-keychain -p "ci-temp" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
-
-      - name: Authenticate Apple ID with Xcode
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-        run: |
-          xcrun altool --list-apps \
-            -u "$APPLE_ID" \
-            -p "$APPLE_ID_PASSWORD" || true
 
       - name: Build WDA
         env:
@@ -70,7 +55,7 @@ jobs:
             -allowProvisioningUpdates \
             -allowProvisioningDeviceRegistration \
             2>&1 | tee build.log
-          echo "Exit code: $?"
+          echo "Exit code: ${PIPESTATUS[0]}"
 
       - name: Find built .app
         run: |
